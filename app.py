@@ -1,5 +1,14 @@
+import subprocess
+import sys
+
+# טריק שמכריח את השרת להתקין את yfinance בעצמו אם הוא פספס
+try:
+    import yfinance as yf
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "yfinance"])
+    import yfinance as yf
+
 import streamlit as st
-import yfinance as yf
 
 st.title("Protocol Dashboard 🚀")
 st.write("הדשבורד שלך באוויר ישירות מה-iPhone!")
