@@ -10,8 +10,34 @@ st.set_page_config(page_title="Protocol 402 - Turbo Finnhub", layout="centered")
 st.title("Dashboard 🕵️‍♂️")
 st.write("🚀 **פרוטוקול 402 - סריקה מהירה (מצב קבוצות + Finnhub API)**")
 
-# הגדרת מפתח ה-API שלך כברירת מחדל (ניתן לשינוי במידת הצורך בבר הצדדי)
+# הגדרת מפתח ה-API שלך כברירת מחדל
 FINNHUB_API_KEY = st.sidebar.text_input("Finnhub API Key:", value="d99ri6pr01qh9urlc1ug", type="password")
+
+# --- 🔍 אזור אבחון שגיאות (Diagnostics) ---
+st.error("🚨 אם המערכת לא מציגה נתונים, סמן את התיבה למטה כדי לראות את השגיאה המדויקת:")
+if st.checkbox("🔍 הפעל מצב אבחון לבדיקת ה-API"):
+    st.subheader("בדיקת חיבור ישירה ל-Finnhub")
+    test_url = "https://finnhub.io/api/v1/stock/candle"
+    test_params = {
+        "symbol": "AAPL",
+        "resolution": "D",
+        "from": int(time.time()) - (10 * 24 * 60 * 60),
+        "to": int(time.time()),
+        "token": FINNHUB_API_KEY
+    }
+    try:
+        res = requests.get(test_url, params=test_params)
+        st.write(f"קוד תגובה מהשרת: `{res.status_code}`")
+        if res.status_code == 200:
+            st.success("השרת ענה בהצלחה! הנה המידע שהתקבל:")
+            st.json(res.json())
+        elif res.status_code == 429:
+            st.warning("שגיאה 429: חרגת מכמות הבקשות המותרת לדקה במסלול החינמי. המתן דקה ונסה שוב.")
+        else:
+            st.error(f"שגיאה מהשרת ({res.status_code}): {res.text}")
+    except Exception as e:
+        st.error(f"לא הצלחתי לפנות לשרת בכלל: {e}")
+    st.markdown("---")
 
 # --- הגדרת הקבוצות שלך ---
 stock_groups = {
@@ -28,10 +54,6 @@ tickers_to_scan = stock_groups[selected_group]
 
 # --- פונקציית משיכת נתונים מ-Finnhub ---
 def fetch_finnhub_candles(symbol, resolution, days_back):
-    """
-    מביאה נתוני נרות מ-Finnhub ומחזירה DataFrame מותאם
-     resolutions נתמכים: 1, 5, 15, 30, 60, D, W, M
-    """
     to_time = int(time.time())
     from_time = to_time - (days_back * 24 * 60 * 60)
     
@@ -101,29 +123,18 @@ rows_data = []
 with st.spinner(f'🚀 סורק נתונים מ-Finnhub עבור {selected_group}...'):
     for t in tickers_to_scan:
         try:
-            # משיכת נתוני בסיס הנדרשים לחישוב הקונפלואנס (Confluence)
-            df_wk = fetch_finnhub_candles(t, "W", days_back=700)   # ~100 שבועות לטובת EMA50
-            df_d = fetch_finnhub_candles(t, "D", days_back=200)    # ~200 ימים לטובת EMA50
-            df_h1 = fetch_finnhub_candles(t, "60", days_back=60)   # 60 יום עבור 1H ו-4H
+            df_wk = fetch_finnhub_candles(t, "W", days_back=700)   
+            df_d = fetch_finnhub_candles(t, "D", days_back=200)    
+            df_h1 = fetch_finnhub_candles(t, "60", days_back=60)   
             
-            # קביעת ה-DataFrame הראשי לפי בחירת המשתמש
-            if main_tf == "W": 
-                df = df_wk
-            elif main_tf == "D": 
-                df = df_d
-            elif main_tf == "60": 
-                df = df_h1
+            if main_tf == "W": df = df_wk
+            elif main_tf == "D": df = df_d
+            elif main_tf == "60": df = df_h1
             elif main_tf == "4h":
-                if not df_h1.empty:
-                    df = df_h1.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
-                else:
-                    df = pd.DataFrame()
-            elif main_tf == "15":
-                df = fetch_finnhub_candles(t, "15", days_back=30) # 30 יום עבור 15 דקות
-            else:
-                continue
+                df = df_h1.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}) if not df_h1.empty else pd.DataFrame()
+            elif main_tf == "15": df = fetch_finnhub_candles(t, "15", days_back=30)
+            else: continue
 
-            # הרצת אינדיקטורים על הציור הנבחר
             df = calculate_indicators(df)
             if df is None or df.empty: continue
                 
@@ -143,7 +154,6 @@ with st.spinner(f'🚀 סורק נתונים מ-Finnhub עבור {selected_group
             fib_target = c - (abs(c - l20) * 1.618) if (is_exhaustion or chg < 0) else c + (abs(c - l20) * 1.618)
             atr_target = c + (atr * 1.618)
             
-            # חישוב קונפלואנס רב-ממדי (Multi-Timeframe Confluence)
             w_ok = evaluate_tf_confluence(df_wk)
             d_ok = evaluate_tf_confluence(df_d)
             h4_ok = evaluate_tf_confluence(df_h1, resample_4h=True)
@@ -155,9 +165,7 @@ with st.spinner(f'🚀 סורק נתונים מ-Finnhub עבור {selected_group
                 "Ticker": t, "Price / %": f"{c:.2f} ({chg:+.2f}%)", "Signal": signal,
                 "ATR": f"{atr_target:.2f}", "Fib": f"{fib_target:.1f}", "Conf": mtf_text, "score": score
             })
-            
-            # מניעת עומס קל על ה-API (Finnhub מאפשר עד 60 בקשות בדקה בחינם)
-            time.sleep(0.05)
+            time.sleep(0.1)  # הגדלת השהיה קלה למניעת חסימות קצב
         except: 
             continue
 
@@ -166,4 +174,4 @@ if rows_data:
     grid_data = pd.DataFrame(rows_data).sort_values(by="score", ascending=False).drop(columns=["score"])
     st.dataframe(grid_data, use_container_width=True, hide_index=True)
 else:
-    st.warning("לא נמצאו מספיק נתונים לקבוצה זו. ודא שמפתח ה-API תקין ופעיל.")
+    st.warning("לא נמצאו מספיק נתונים לקבוצה זו. אנא בדוק את מצב האבחון למעלה.")
