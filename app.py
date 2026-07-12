@@ -93,7 +93,7 @@ if not nasdaq_raw.empty:
 
     # חומת הגנה 2: עטיפת השרת ב-try/except למקרה של תקלה ברשת
     try:
-        with St.spinner('🚀 מסנכרן נתונים בגרסת טורבו...'):
+        with st.spinner('🚀 מסנכרן נתונים בגרסת טורבו...'):
             bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
             bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
             bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
