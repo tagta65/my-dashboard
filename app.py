@@ -5,10 +5,10 @@ import pandas as pd
 import numpy as np
 
 # הגדרות תצוגה מותאמות למובייל (iPhone)
-st.set_page_config(page_title="Protocol 402 - Turbo Dashboard", layout="centered")
+st.set_page_config(page_title="Protocol 402 - Bulletproof", layout="centered")
 
 st.title("Dashboard 🕵️‍♂️")
-st.write("🚀 **פרוטוקול 402 - גרסת טורבו אולטרה-מהירה**")
+st.write("🚀 **פרוטוקול 402 - גרסה חסינת קריסות**")
 
 # --- מנוע משיכת כל מניות הנאסד"ק מה-API הרשמי ---
 @st.cache_data(ttl=600)
@@ -78,30 +78,39 @@ main_tf = timeframe_options[selected_tf_label]
 custom_ticker = st.text_input("🔍 הוסף מניה ספציפית לחישוב (למשל: AAPL, TSLA, MSFT):", "").upper().strip()
 
 if not nasdaq_raw.empty:
-    # בחירת 30 המניות הכי פעילות בשוק
+    # בחירת 30 המניות הכי פעילות בשוק כבסיס יציב
     top_active = nasdaq_raw.sort_values(by="volume", ascending=False).head(30)
     tickers_to_scan = top_active['symbol'].tolist()
     
-    if custom_ticker and custom_ticker not in tickers_to_scan:
-        tickers_to_scan.insert(0, custom_ticker)
-    
-    # 2. מגה-הורדה מרוכזת (Bulk) - חוסך 150 בקשות רשת ומרכז אותן ל-3 בלבד!
-    with st.spinner('🚀 מריץ משיכת נתונים מרוכזת (Bulk Download) ב-3 שניות...'):
+    # חומת הגנה 1: בודק שהטיקר שהקלדת באמת קיים קודם בנאסד"ק כדי למנוע קריסה בזמן ההקלדה
+    if custom_ticker:
+        nasdaq_symbols = nasdaq_raw['symbol'].tolist()
+        if custom_ticker in nasdaq_symbols:
+            if custom_ticker not in tickers_to_scan:
+                tickers_to_scan.insert(0, custom_ticker)
+        else:
+            st.info(f"⏳ ממתין להקלדת סימול מלא ותקין מתוך ה-NASDAQ (כרגע נקלט: '{custom_ticker}')...")
+
+    # חומת הגנה 2: עטיפת השרת ב-try/except למקרה של תקלה ברשת
+    try:
+        with St.spinner('🚀 מסנכרן נתונים בגרסת טורבו...'):
+            bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
+            bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
+            bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
+            bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False) if main_tf == "15m" else None
+    except Exception as bulk_error:
+        st.warning("⚠️ שגיאה זמנית בסנכרון הטיקר החדש. מציג את רשימת הבסיס בלבד.")
+        tickers_to_scan = top_active['symbol'].tolist()
         bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
         bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
         bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
-        
-        # אם ציר הזמן הראשי הוא 15 דקות, נמשוך גם אותו בנפרד
-        bulk_main = None
-        if main_tf == "15m":
-            bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False)
+        bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False) if main_tf == "15m" else None
 
     rows_data = []
     
-    # 3. עיבוד נתונים מהיר במעבד (In-Memory)
+    # 3. עיבוד נתונים מהיר מהזיכרון
     for t in tickers_to_scan:
         try:
-            # חילוץ הדאטה-פריים הספציפי של המניה מתוך קובץ ה-Bulk
             if main_tf == "1wk": df = bulk_wk[t]
             elif main_tf == "1d": df = bulk_d[t]
             elif main_tf == "1h": df = bulk_h1[t]
@@ -138,7 +147,6 @@ if not nasdaq_raw.empty:
             x_mom = ((c - e) / e) * 100
             chaos_emoji = "⚠️" if (is_exhaustion and v/vm < 0.8 and x_mom > 4.5) else "🏃‍♂️" if (is_breakout and macro_up) else "🔵"
                 
-            # חישוב קונפלוונס מהיר מהזיכרון ללא פניות נוספות לרשת
             w_ok = evaluate_tf_confluence_from_bulk(bulk_wk[t])
             d_ok = evaluate_tf_confluence_from_bulk(bulk_d[t])
             h4_ok = evaluate_tf_confluence_from_bulk(bulk_h1[t], resample_4h=True)
