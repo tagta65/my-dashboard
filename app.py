@@ -5,9 +5,10 @@ import pandas as pd
 import numpy as np
 
 # הגדרות תצוגה מותאמות למובייל (iPhone)
-st.set_page_config(page_title="Protocol 402 - Full Nasdaq", layout="centered")
+st.set_page_config(page_title="Protocol 402 - Unified Dashboard", layout="centered")
 
-st.title("Protocol 402 - NASDAQ Dashboard 🕵️‍♂️")
+st.title("Dashboard 🕵️‍♂️")
+st.write("פרוטוקול 402 - מסך סריקה וחישוב מאוחד")
 
 # --- מנוע משיכת כל מניות הנאסד"ק מה-API הרשמי ---
 @st.cache_data(ttl=300)
@@ -27,13 +28,14 @@ def get_all_nasdaq_market():
         if 'exchange' in df.columns:
             df = df[df['exchange'].str.upper() == 'NASDAQ']
             
-        # ניקוי נתונים פנימי כדי שנוכל למיין לפי אחוזים
+        # ניקוי נתונים
         df['pctchange'] = df['pctchange'].str.replace('%', '', regex=False).str.strip()
         df['pctchange'] = pd.to_numeric(df['pctchange'], errors='coerce').fillna(0)
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
         
         return df
     except Exception as e:
-        st.error(f"שגיאה במשיכת הנתונים מנאסד\"ק: {e}")
+        st.error(f"שגיאה במשיכת הנתונים מנאס드\"ק: {e}")
         return pd.DataFrame()
 
 # פונקציות עזר לחישובים (פרוטוקול 402)
@@ -70,101 +72,86 @@ def check_tf_confluence(ticker, tf_interval):
     except:
         return False
 
-# שאיבת הנתונים הגולמיים של כל ה-3,000
-with st.spinner('שואב את נתוני כל השוק בזמן אמת...'):
+# שאיבת הנתונים הגולמיים של השוק
+with st.spinner('מתחבר לשרתי נאסד"ק ומסנכרן נתונים...'):
     nasdaq_raw = get_all_nasdaq_market()
 
-# --- יצירת הלשוניות באייפון ---
-tab1, tab2 = st.tabs(["📊 כל השוק (3,000+ מניות)", "⚡ סורק פרוטוקול 402"])
+# --- ממשק משתמש אחוד ---
+timeframe_options = {"15 דקות": "15m", "שעה אחת": "1h", "4 שעות": "4h", "יומי": "1d", "שבועי": "1wk"}
+selected_tf_label = st.selectbox("בחר ציר זמן ראשי לבדיקה:", list(timeframe_options.keys()), index=3)
+main_tf = timeframe_options[selected_tf_label]
 
-# --- לשונית 1: כל 3,000 המניות ---
-with tab1:
-    st.subheader("כל מניות ה-NASDAQ")
-    if not nasdaq_raw.empty:
-        # תיבת חיפוש מהירה למובייל
-        search_query = st.text_input("🔍 חפש מניה לפי סימול (Ticker):", "").upper().strip()
-        
-        display_df = nasdaq_raw.copy()
-        if search_query:
-            display_df = display_df[display_df['symbol'].str.contains(search_query)]
-            
-        columns_to_show = ['symbol', 'name', 'lastsale', 'pctchange', 'volume']
-        rename_cols = {'symbol': 'Ticker', 'name': 'Name', 'lastsale': 'Price', 'pctchange': 'Change %', 'volume': 'Volume'}
-        
-        st.write(f"מציג {len(display_df)} מניות:")
-        st.dataframe(
-            display_df[columns_to_show].rename(columns=rename_cols), 
-            use_container_width=True, 
-            hide_index=True
-        )
+# תיבת הזרקה דינמית - מאפשרת להביא כל מניה מתוך ה-3,000 ישירות לחישוב
+custom_ticker = st.text_input("🔍 הוסף מניה ספציפית לחישוב (למשל: AAPL, TSLA, MSFT):", "").upper().strip()
+
+if not nasdaq_raw.empty:
+    # בחירת 30 המניות הכי פעילות בשוק (לפי Volume) כבסיס קבוע
+    top_active = nasdaq_raw.sort_values(by="volume", ascending=False).head(30)
+    tickers_to_scan = top_active['symbol'].tolist()
+    
+    # אם המשתמש הזין מניה ידנית, נדחף אותה לראש הרשימה כדי שתחושב מיד
+    if custom_ticker and custom_ticker not in tickers_to_scan:
+        tickers_to_scan.insert(0, custom_ticker)
+    
+    rows_data = []
+    with st.spinner(f"מריץ את פרוטוקול 402 על {len(tickers_to_scan)} המניות המובילות..."):
+        for t in tickers_to_scan:
+            try:
+                period = "max" if main_tf in ["1d", "1wk"] else "60d"
+                if main_tf == "4h":
+                    df = yf.download(t, period="60d", interval="1h", progress=False)
+                    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+                    if not df.empty:
+                        df = df.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
+                else:
+                    df = yf.download(t, period=period, interval=main_tf, progress=False)
+                    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+                
+                df = calculate_indicators(df)
+                if df is None or df.empty: continue
+                    
+                row = df.iloc[-1]
+                c, o, v, vm, h, e, l20, atr = float(row['Close']), float(row['Open']), float(row['Volume']), float(row['Vol_SMA20']), float(row['H20_Prev']), float(row['EMA50']), float(row['L20']), float(row['ATR'])
+                
+                chg = ((c - o) / o) * 100
+                is_breakout = (c > h) and (v > vm * 2.5)
+                macro_up = c > e
+                is_exhaustion = (c >= h * 0.98) and (v < vm * 0.8)
+                
+                # חישוב משקל למיון הטבלה
+                sig_weight = 4000 if (is_breakout and macro_up) else 3000 if is_breakout else 2000 if macro_up else 1000
+                score = sig_weight + chg
+                
+                if is_breakout and macro_up: signal = "⚡ CONFIRMED"
+                elif is_breakout: signal = "🔥 BREAKOUT"
+                elif macro_up: signal = "📈 BULLISH"
+                else: signal = "📉 BEARISH"
+                    
+                fib_target = c - (abs(c - l20) * 1.618) if (is_exhaustion or chg < 0) else c + (abs(c - l20) * 1.618)
+                fib_text = f"▼ {fib_target:.1f}" if (is_exhaustion or chg < 0) else f"▲ {fib_target:.1f}"
+                atr_target = c + (atr * 1.618)
+                
+                x_mom = ((c - e) / e) * 100
+                chaos_emoji = "⚠️" if (is_exhaustion and v/vm < 0.8 and x_mom > 4.5) else "🏃‍♂️" if (is_breakout and macro_up) else "🔵"
+                    
+                w_ok, d_ok, h4_ok, h1_ok = check_tf_confluence(t, "1wk"), check_tf_confluence(t, "1d"), check_tf_confluence(t, "4h"), check_tf_confluence(t, "1h")
+                green_counter = sum([w_ok, d_ok, h4_ok, h1_ok])
+                mtf_text = "🚀" if green_counter == 4 else "".join([f"{k} " for k, v in zip(["W", "D", "H", "M"], [w_ok, d_ok, h4_ok, h1_ok]) if v]) or "—"
+                
+                rows_data.append({
+                    "Ticker": t, "Price / %": f"{c:.2f} ({chg:+.2f}%)", "Signal": signal,
+                    "ATR Tar": f"{atr_target:.2f}", "Fib Tar": fib_text, "Confluence": mtf_text, "Chaos": chaos_emoji, "score": score
+                })
+            except: continue
+    
+    # הצגת הטבלה המאוחדת
+    if rows_data:
+        grid_data = pd.DataFrame(rows_data).sort_values(by="score", ascending=False).drop(columns=["score"])
+        st.write("📊 **טבלת איתותי כניסה וניהול סיכונים מאוחדת:**")
+        st.dataframe(grid_data, use_container_width=True, hide_index=True)
     else:
-        st.error("לא ניתן להציג את רשימת השוק.")
-
-# --- לשונית 2: הסורק המקצועי שלך ---
-with tab2:
-    st.subheader("ניתוח פרוטוקול 402")
-    
-    timeframe_options = {"15 דקות": "15m", "שעה אחת": "1h", "4 שעות": "4h", "יומי": "1d", "שבועי": "1wk"}
-    selected_tf_label = st.selectbox("בחר ציר זמן ראשי:", list(timeframe_options.keys()), index=3)
-    main_tf = timeframe_options[selected_tf_label]
-    
-    if not nasdaq_raw.empty:
-        # לוקח את ה-15 הכי חמות להרצת החישובים הכבדים
-        top_gainers = nasdaq_raw.sort_values(by="pctchange", ascending=False).head(15)
-        tickers_to_scan = top_gainers['symbol'].tolist()
+        st.warning("לא נמצאו מספיק נתונים לחישוב האינדיקטורים כרגע.")
         
-        rows_data = []
-        with st.spinner("מחשב קונפלוונס, ATR ואינדיקטורים..."):
-            for t in tickers_to_scan:
-                try:
-                    period = "max" if main_tf in ["1d", "1wk"] else "60d"
-                    if main_tf == "4h":
-                        df = yf.download(t, period="60d", interval="1h", progress=False)
-                        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-                        if not df.empty:
-                            df = df.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
-                    else:
-                        df = yf.download(t, period=period, interval=main_tf, progress=False)
-                        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-                    
-                    df = calculate_indicators(df)
-                    if df is None or df.empty: continue
-                        
-                    row = df.iloc[-1]
-                    c, o, v, vm, h, e, l20, atr = float(row['Close']), float(row['Open']), float(row['Volume']), float(row['Vol_SMA20']), float(row['H20_Prev']), float(row['EMA50']), float(row['L20']), float(row['ATR'])
-                    
-                    chg = ((c - o) / o) * 100
-                    is_breakout = (c > h) and (v > vm * 2.5)
-                    macro_up = c > e
-                    is_exhaustion = (c >= h * 0.98) and (v < vm * 0.8)
-                    
-                    sig_weight = 4000 if (is_breakout and macro_up) else 3000 if is_breakout else 2000 if macro_up else 1000
-                    score = sig_weight + chg
-                    
-                    if is_breakout and macro_up: signal = "⚡ CONFIRMED"
-                    elif is_breakout: signal = "🔥 BREAKOUT"
-                    elif macro_up: signal = "📈 BULLISH"
-                    else: signal = "📉 BEARISH"
-                        
-                    fib_target = c - (abs(c - l20) * 1.618) if (is_exhaustion or chg < 0) else c + (abs(c - l20) * 1.618)
-                    fib_text = f"▼ {fib_target:.1f}" if (is_exhaustion or chg < 0) else f"▲ {fib_target:.1f}"
-                    atr_target = c + (atr * 1.618)
-                    
-                    x_mom = ((c - e) / e) * 100
-                    chaos_emoji = "⚠️" if (is_exhaustion and v/vm < 0.8 and x_mom > 4.5) else "🏃‍♂️" if (is_breakout and macro_up) else "🔵"
-                        
-                    w_ok, d_ok, h4_ok, h1_ok = check_tf_confluence(t, "1wk"), check_tf_confluence(t, "1d"), check_tf_confluence(t, "4h"), check_tf_confluence(t, "1h")
-                    green_counter = sum([w_ok, d_ok, h4_ok, h1_ok])
-                    mtf_text = "🚀" if green_counter == 4 else "".join([f"{k} " for k, v in zip(["W", "D", "H", "M"], [w_ok, d_ok, h4_ok, h1_ok]) if v]) or "—"
-                    
-                    rows_data.append({
-                        "Ticker": t, "Price / %": f"{c:.2f} ({chg:+.2f}%)", "Signal": signal,
-                        "ATR Tar": f"{atr_target:.2f}", "Fib Tar": fib_text, "Confluence": mtf_text, "Chaos": chaos_emoji, "score": score
-                    })
-                except: continue
-        
-        if rows_data:
-            grid_data = pd.DataFrame(rows_data).sort_values(by="score", ascending=False).drop(columns=["score"])
-            st.dataframe(grid_data, use_container_width=True, hide_index=True)
-        else:
-            st.warning("אין מספיק נתונים לחישוב אינדיקטורים.")
+    st.caption(f"עודכן לאחרונה עבור ציר זמן: {selected_tf_label}")
+else:
+    st.error("נכשלה טעינת נתוני השוק משרתי נאסד\"ק.")
