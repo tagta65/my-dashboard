@@ -10,12 +10,11 @@ st.set_page_config(page_title="Protocol 402 - Turbo Finnhub", layout="centered")
 st.title("Dashboard 🕵️‍♂️")
 st.write("🚀 **פרוטוקול 402 - סריקה מהירה (מצב קבוצות + Finnhub API)**")
 
-# הגדרת מפתח ה-API שלך כברירת מחדל
-FINNHUB_API_KEY = st.sidebar.text_input("Finnhub API Key:", value="d99ri6pr01qh9urlc1ug", type="password")
+# נעלנו את המפתח ישירות בקוד כדי לעקוף את בעיות הזיכרון של הדפדפן בטלפון
+FINNHUB_API_KEY = "d99ri6pr01qh9urlc1ug"
 
 # --- 🔍 אזור אבחון שגיאות (Diagnostics) ---
-st.error("🚨 אם המערכת לא מציגה נתונים, סמן את התיבה למטה כדי לראות את השגיאה המדויקת:")
-if st.checkbox("🔍 הפעל מצב אבחון לבדיקת ה-API"):
+if st.checkbox("🔍 הפעל מצב אבחון לבדיקת ה-API", value=True):
     st.subheader("בדיקת חיבור ישירה ל-Finnhub")
     test_url = "https://finnhub.io/api/v1/stock/candle"
     test_params = {
@@ -27,12 +26,10 @@ if st.checkbox("🔍 הפעל מצב אבחון לבדיקת ה-API"):
     }
     try:
         res = requests.get(test_url, params=test_params)
-        st.write(f"קוד תגובה מהשרת: `{res.status_code}`")
         if res.status_code == 200:
-            st.success("השרת ענה בהצלחה! הנה המידע שהתקבל:")
-            st.json(res.json())
+            st.success("🎯 החיבור הצליח! המפתח תקין ומגיב מעולה.")
         elif res.status_code == 429:
-            st.warning("שגיאה 429: חרגת מכמות הבקשות המותרת לדקה במסלול החינמי. המתן דקה ונסה שוב.")
+            st.warning("שגיאה 429: חרגת מכמות הבקשות המותרת לדקה במסלול החינמי. המתן דקה.")
         else:
             st.error(f"שגיאה מהשרת ({res.status_code}): {res.text}")
     except Exception as e:
@@ -165,7 +162,7 @@ with st.spinner(f'🚀 סורק נתונים מ-Finnhub עבור {selected_group
                 "Ticker": t, "Price / %": f"{c:.2f} ({chg:+.2f}%)", "Signal": signal,
                 "ATR": f"{atr_target:.2f}", "Fib": f"{fib_target:.1f}", "Conf": mtf_text, "score": score
             })
-            time.sleep(0.1)  # הגדלת השהיה קלה למניעת חסימות קצב
+            time.sleep(0.1)  
         except: 
             continue
 
@@ -174,4 +171,4 @@ if rows_data:
     grid_data = pd.DataFrame(rows_data).sort_values(by="score", ascending=False).drop(columns=["score"])
     st.dataframe(grid_data, use_container_width=True, hide_index=True)
 else:
-    st.warning("לא נמצאו מספיק נתונים לקבוצה זו. אנא בדוק את מצב האבחון למעלה.")
+    st.warning("לא נמצאו מספיק נתונים לקבוצה זו. אנא ודא שהחשבון אומת במייל.")
