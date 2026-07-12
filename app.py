@@ -5,10 +5,10 @@ import pandas as pd
 import numpy as np
 
 # הגדרות תצוגה מותאמות למובייל (iPhone)
-st.set_page_config(page_title="Protocol 402 - Bulletproof Turbo", layout="centered")
+st.set_page_config(page_title="Protocol 402 - Fixed", layout="centered")
 
 st.title("Dashboard 🕵️‍♂️")
-st.write("🚀 **פרוטוקול 402 - גרסת טורבו חסינת קריסות**")
+st.write("🚀 **פרוטוקול 402 - גרסה יציבה ומעודכנת**")
 
 # --- מנוע משיכת כל מניות הנאסד"ק מה-API הרשמי ---
 @st.cache_data(ttl=600)
@@ -85,7 +85,7 @@ if not nasdaq_raw.empty:
     top_active = nasdaq_raw.sort_values(by="volume", ascending=False).head(30)
     tickers_to_scan = top_active['symbol'].tolist()
     
-    # הגנה קשיחה: הזרקת המניה רק אם היא קיימת ורק אם לחצו על הכפתור
+    # הגנה קשיחה: הזרקת המניה רק אם היא קיימת
     if custom_ticker:
         nasdaq_symbols = nasdaq_raw['symbol'].tolist()
         if custom_ticker in nasdaq_symbols:
@@ -94,28 +94,28 @@ if not nasdaq_raw.empty:
         else:
             st.warning(f"הסימול '{custom_ticker}' לא נמצא בבורסת NASDAQ. מציג את רשימת הבסיס.")
 
-    # משיכת הנתונים המרוכזת עם הבטחת מבנה טבלה קבוע (keep_multiindex=True)
+    # משיכת הנתונים המרוכזת ללא הארגומנט השגוי
     try:
         with st.spinner('🚀 מסנכרן נתונים בגרסת טורבו...'):
-            bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', keep_multiindex=True, progress=False)
-            bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', keep_multiindex=True, progress=False)
-            bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', keep_multiindex=True, progress=False)
-            bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', keep_multiindex=True, progress=False) if main_tf == "15m" else None
+            bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
+            bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
+            bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
+            bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False) if main_tf == "15m" else None
     except Exception as bulk_error:
-        st.error("שגיאה בתקשורת מול שרתי הנתונים. מריץ ניסיון חוזר על רשימת הבסיס...")
+        st.warning("⚠️ שגיאה זמנית בתקשורת. מנסה למשוך את נתוני הבסיס...")
         tickers_to_scan = top_active['symbol'].tolist()
-        bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', keep_multiindex=True, progress=False)
-        bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', keep_multiindex=True, progress=False)
-        bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', keep_multiindex=True, progress=False)
-        bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', keep_multiindex=True, progress=False) if main_tf == "15m" else None
+        bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
+        bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
+        bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
+        bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False) if main_tf == "15m" else None
 
     rows_data = []
     
     # 3. עיבוד נתונים מהיר מהזיכרון
     for t in tickers_to_scan:
         try:
-            # הגנה על שליפת הנתונים מתוך מבנה ה-Bulk
-            if t not in bulk_wk.columns.levels[0]: continue
+            # בדיקה שהטיקר אכן קיים בתוצאות שהתקבלו מיאהו
+            if t not in bulk_wk.columns: continue
             
             if main_tf == "1wk": df = bulk_wk[t]
             elif main_tf == "1d": df = bulk_d[t]
