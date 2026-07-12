@@ -10,7 +10,6 @@ st.title("Protocol 402 - MTF Dashboard 📱")
 st.write("True MTF Quad-Confluence iPhone Grid")
 
 # --- מנגנון שינוי צירי זמן אינטראקטיבי ---
-# מאפשר לך לשנות את ציר הזמן הראשי של הדשבורד בלחיצה
 timeframe_options = {
     "15 דקות": "15m",
     "שעה אחת": "1h",
@@ -21,7 +20,7 @@ timeframe_options = {
 selected_tf_label = st.selectbox("בחר ציר זמן ראשי לבדיקה:", list(timeframe_options.keys()), index=3)
 main_tf = timeframe_options[selected_tf_label]
 
-# רשימת הטיקרים המדויקת מהפרוטוקול שלך
+# רשימת הטיקרים המדויקת מהפרוטוקול
 tickers = ["NVDA", "AAPL", "MSFT", "AMZN", "TSLA", "META", "GOOGL", "QQQ"]
 
 # פונקציית עזר לחישוב אינדיקטורים על ה-Dataframe
@@ -46,14 +45,17 @@ def calculate_indicators(df):
 
 # פונקציה לבדיקת תנאי ה-Confluence של ציר זמן ספציפי
 def check_tf_confluence(ticker, tf_interval):
-    # התאמת תקופת המשיכה לפי האינטרוול כדי לחסוך בזמן טעינה
     period = "max" if tf_interval in ["1d", "1wk"] else "60d"
     if tf_interval == "4h":
         data = yf.download(ticker, period="60d", interval="1h", progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
         if not data.empty:
             data = data.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
     else:
         data = yf.download(ticker, period=period, interval=tf_interval, progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
         
     data = calculate_indicators(data)
     if data is None or data.empty:
@@ -66,19 +68,22 @@ def check_tf_confluence(ticker, tf_interval):
     return bool(is_green and not is_exhaustion)
 
 # --- מנוע עיבוד הנתונים הראשי ---
-@st.cache_data(ttl=60)  # קאש לדקה אחת כדי לא להעמיס במשיכות חוזרות מאייפון
+@st.cache_data(ttl=60)  # קאש לדקה אחת
 def fetch_and_build_dashboard(main_interval):
     rows_data = []
     
     for t in tickers:
-        # משיכת הנתונים עבור ציר הזמן הראשי שנבחר
         period = "max" if main_interval in ["1d", "1wk"] else "60d"
         if main_interval == "4h":
             df = yf.download(t, period="60d", interval="1h", progress=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
             if not df.empty:
                 df = df.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'})
         else:
             df = yf.download(t, period=period, interval=main_interval, progress=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
             
         df = calculate_indicators(df)
         if df is None or df.empty:
@@ -103,7 +108,7 @@ def fetch_and_build_dashboard(main_interval):
         sig_weight = 4000 if (is_breakout and macro_up) else 3000 if is_breakout else 2000 if macro_up else 1000
         score = sig_weight + chg
         
-        # קביעת סיגנל וצבעים
+        # קביעת סיגנל
         if is_breakout and macro_up:
             signal = "⚡ CONFIRMED"
         elif is_breakout:
@@ -139,12 +144,11 @@ def fetch_and_build_dashboard(main_interval):
         else:
             chaos_emoji = "🔵"
             
-        # חישוב True MTF Quad-Confluence לשכבות קבועות (W, D, 4H, 1H/45m)
-        # כדי לחסוך זמן ריצה במובייל, נשתמש בסימולציה מהירה או בדיקה ישירה:
+        # חישוב True MTF Quad-Confluence (W, D, 4H, 1H)
         w_ok = check_tf_confluence(t, "1wk")
         d_ok = check_tf_confluence(t, "1d")
         h4_ok = check_tf_confluence(t, "4h")
-        m45_ok = check_tf_confluence(t, "1h") # החלפה הטובה ביותר ל-45m ב-yfinance
+        m45_ok = check_tf_confluence(t, "1h")
         
         green_counter = sum([w_ok, d_ok, h4_ok, m45_ok])
         
@@ -170,7 +174,6 @@ def fetch_and_build_dashboard(main_interval):
             "score": score
         })
         
-    # מיון התוצאות לפי ה-Score (בדומה ל-Bubble Sort שכתבת ב-Pine)
     df_result = pd.DataFrame(rows_data)
     if not df_result.empty:
         df_result = df_result.sort_values(by="score", ascending=False).drop(columns=["score"])
@@ -180,7 +183,7 @@ def fetch_and_build_dashboard(main_interval):
 with st.spinner("מחשב נתוני פרוטוקול..."):
     grid_data = fetch_and_build_dashboard(main_tf)
 
-# הצגת הטבלה בעיצוב נקי וקומפקטי שמתאים בול למסך האייפון
+# הצגת הטבלה בעיצוב נקי למובייל
 st.dataframe(
     grid_data, 
     use_container_width=True, 
