@@ -11,7 +11,7 @@ st.title("Dashboard 🕵️‍♂️")
 st.write("🚀 **פרוטוקול 402 - סריקה מהירה (מצב קבוצות + Finnhub API)**")
 
 # נעלנו את המפתח ישירות בקוד כדי לעקוף את בעיות הזיכרון של הדפדפן בטלפון
-FINNHUB_API_KEY = "d99ri6pr01qh9urlc1ug"
+FINNHUB_API_KEY = "d99tfghr01qh9urllrlg"
 
 # --- 🔍 אזור אבחון שגיאות (Diagnostics) ---
 if st.checkbox("🔍 הפעל מצב אבחון לבדיקת ה-API", value=True):
