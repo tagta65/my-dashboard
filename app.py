@@ -5,10 +5,10 @@ import pandas as pd
 import numpy as np
 
 # הגדרות תצוגה מותאמות למובייל (iPhone)
-st.set_page_config(page_title="Protocol 402 - Bulletproof", layout="centered")
+st.set_page_config(page_title="Protocol 402 - Bulletproof Turbo", layout="centered")
 
 st.title("Dashboard 🕵️‍♂️")
-st.write("🚀 **פרוטוקול 402 - גרסה חסינת קריסות**")
+st.write("🚀 **פרוטוקול 402 - גרסת טורבו חסינת קריסות**")
 
 # --- מנוע משיכת כל מניות הנאסד"ק מה-API הרשמי ---
 @st.cache_data(ttl=600)
@@ -75,42 +75,48 @@ timeframe_options = {"15 דקות": "15m", "שעה אחת": "1h", "4 שעות": 
 selected_tf_label = st.selectbox("בחר ציר זמן ראשי לבדיקה:", list(timeframe_options.keys()), index=3)
 main_tf = timeframe_options[selected_tf_label]
 
-custom_ticker = st.text_input("🔍 הוסף מניה ספציפית לחישוב (למשל: AAPL, TSLA, MSFT):", "").upper().strip()
+# שימוש בטופס (Form) כדי למנוע קריסות בזמן ההקלדה במובייל
+with st.form(key='ticker_search_form'):
+    custom_ticker = st.text_input("🔍 בדוק מניה ספציפית מהשוק (למשל: AAPL, TSLA, NVDA):", "").upper().strip()
+    submit_button = st.form_submit_button(label='🚀 חשב והוסף מניה')
 
 if not nasdaq_raw.empty:
     # בחירת 30 המניות הכי פעילות בשוק כבסיס יציב
     top_active = nasdaq_raw.sort_values(by="volume", ascending=False).head(30)
     tickers_to_scan = top_active['symbol'].tolist()
     
-    # חומת הגנה 1: בודק שהטיקר שהקלדת באמת קיים קודם בנאסד"ק כדי למנוע קריסה בזמן ההקלדה
+    # הגנה קשיחה: הזרקת המניה רק אם היא קיימת ורק אם לחצו על הכפתור
     if custom_ticker:
         nasdaq_symbols = nasdaq_raw['symbol'].tolist()
         if custom_ticker in nasdaq_symbols:
             if custom_ticker not in tickers_to_scan:
                 tickers_to_scan.insert(0, custom_ticker)
         else:
-            st.info(f"⏳ ממתין להקלדת סימול מלא ותקין מתוך ה-NASDAQ (כרגע נקלט: '{custom_ticker}')...")
+            st.warning(f"הסימול '{custom_ticker}' לא נמצא בבורסת NASDAQ. מציג את רשימת הבסיס.")
 
-    # חומת הגנה 2: עטיפת השרת ב-try/except למקרה של תקלה ברשת
+    # משיכת הנתונים המרוכזת עם הבטחת מבנה טבלה קבוע (keep_multiindex=True)
     try:
         with st.spinner('🚀 מסנכרן נתונים בגרסת טורבו...'):
-            bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
-            bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
-            bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
-            bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False) if main_tf == "15m" else None
+            bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', keep_multiindex=True, progress=False)
+            bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', keep_multiindex=True, progress=False)
+            bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', keep_multiindex=True, progress=False)
+            bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', keep_multiindex=True, progress=False) if main_tf == "15m" else None
     except Exception as bulk_error:
-        st.warning("⚠️ שגיאה זמנית בסנכרון הטיקר החדש. מציג את רשימת הבסיס בלבד.")
+        st.error("שגיאה בתקשורת מול שרתי הנתונים. מריץ ניסיון חוזר על רשימת הבסיס...")
         tickers_to_scan = top_active['symbol'].tolist()
-        bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', progress=False)
-        bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', progress=False)
-        bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', progress=False)
-        bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', progress=False) if main_tf == "15m" else None
+        bulk_wk = yf.download(tickers_to_scan, period="max", interval="1wk", group_by='ticker', keep_multiindex=True, progress=False)
+        bulk_d = yf.download(tickers_to_scan, period="max", interval="1d", group_by='ticker', keep_multiindex=True, progress=False)
+        bulk_h1 = yf.download(tickers_to_scan, period="60d", interval="1h", group_by='ticker', keep_multiindex=True, progress=False)
+        bulk_main = yf.download(tickers_to_scan, period="60d", interval="15m", group_by='ticker', keep_multiindex=True, progress=False) if main_tf == "15m" else None
 
     rows_data = []
     
     # 3. עיבוד נתונים מהיר מהזיכרון
     for t in tickers_to_scan:
         try:
+            # הגנה על שליפת הנתונים מתוך מבנה ה-Bulk
+            if t not in bulk_wk.columns.levels[0]: continue
+            
             if main_tf == "1wk": df = bulk_wk[t]
             elif main_tf == "1d": df = bulk_d[t]
             elif main_tf == "1h": df = bulk_h1[t]
